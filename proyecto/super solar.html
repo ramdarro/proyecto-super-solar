@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solar Assistant & Domótica Dashboard</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            orange: '#f59e0b',
+                            amber: '#d97706',
+                            dark: '#0f172a',
+                            card: '#1e293b'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- CSS Externo -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-100 flex flex-col min-h-screen">
+
+    <!-- ==================== HEADER / NAVBAR ==================== -->
+    <header class="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white shadow-md sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 py-2.5 flex items-center justify-between gap-2">
+            
+            <!-- Brand Logo -->
+            <div class="flex items-center space-x-3">
+                <div class="bg-slate-900 text-amber-400 font-extrabold px-3 py-1 rounded-lg text-lg tracking-wider flex items-center gap-2 shadow-inner">
+                    <i class="fa-solid fa-sun text-yellow-400 animate-spin-slow"></i>
+                    <span>solar</span>
+                    <span class="text-white text-xs font-light tracking-normal uppercase border-l border-slate-700 pl-2">assistant</span>
+                </div>
+                <span class="hidden sm:inline-block text-[11px] bg-amber-700/40 px-2.5 py-0.5 rounded-full border border-amber-300/30">
+                    <i class="fa-solid fa-circle text-emerald-400 text-[8px] mr-1"></i> ESP32 Online
+                </span>
+            </div>
+
+            <!-- Header Info & Controls -->
+            <div class="flex items-center space-x-3 text-xs sm:text-sm">
+                <div class="hidden md:flex items-center space-x-2 bg-amber-700/30 px-3 py-1 rounded-lg border border-white/20 font-mono">
+                    <i class="fa-solid fa-wifi text-emerald-300"></i>
+                    <span>Home_Solar_5G</span>
+                    <span class="text-amber-200">|</span>
+                    <span id="live-time">12:00 PM</span>
+                </div>
+
+                <!-- Botón de Descarga -->
+                <button onclick="exportData()" class="p-2 bg-emerald-600 hover:bg-emerald-700 rounded-full transition text-white focus:outline-none" title="Descargar CSV">
+                    <i class="fa-solid fa-download text-base"></i>
+                </button>
+
+                <!-- Selector de Idiomas Ampliado -->
+                <select id="lang-selector" onchange="changeLanguage(this.value)" class="bg-amber-700/40 hover:bg-amber-700/60 text-white border border-transparent rounded-lg text-xs py-1.5 px-2 focus:ring-0 cursor-pointer outline-none transition font-semibold">
+                    <option value="es" class="text-slate-800">ES</option>
+                    <option value="en" class="text-slate-800">EN</option>
+                    <option value="pt" class="text-slate-800">PT</option>
+                    <option value="fr" class="text-slate-800">FR</option>
+                </select>
+
+                <!-- Dark Mode Toggle Button -->
+                <button id="theme-toggle" class="p-2 bg-amber-700/40 hover:bg-amber-700/60 rounded-full transition text-white focus:outline-none" title="Cambiar Tema">
+                    <i class="fa-solid fa-moon text-base" id="theme-icon"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- NAVIGATION TABS (Scrollable on Mobile) -->
+        <nav class="max-w-7xl mx-auto px-2 overflow-x-auto no-scrollbar">
+            <div class="flex space-x-1 text-xs sm:text-sm font-medium pt-1" id="nav-container">
+                <button onclick="switchTab('dashboard')" id="tab-dashboard" class="nav-tab active px-3.5 py-2.5 rounded-t-lg flex items-center gap-2 whitespace-nowrap text-slate-800">
+                    <i class="fa-solid fa-border-all"></i> <span data-i18n="nav_dashboard">Dashboard</span>
+                </button>
+                <button onclick="switchTab('charts')" id="tab-charts" class="nav-tab px-3.5 py-2.5 rounded-t-lg flex items-center gap-2 whitespace-nowrap text-white/90 hover:bg-amber-600/40">
+                    <i class="fa-solid fa-chart-line"></i> <span data-i18n="nav_charts">Charts</span>
+                </button>
+                <button onclick="switchTab('totals')" id="tab-totals" class="nav-tab px-3.5 py-2.5 rounded-t-lg flex items-center gap-2 whitespace-nowrap text-white/90 hover:bg-amber-600/40">
+                    <i class="fa-solid fa-calculator"></i> <span data-i18n="nav_totals">Totals</span>
+                </button>
+                <button onclick="switchTab('power')" id="tab-power" class="nav-tab px-3.5 py-2.5 rounded-t-lg flex items-center gap-2 whitespace-nowrap text-white/90 hover:bg-amber-600/40">
+                    <i class="fa-solid fa-bolt"></i> <span data-i18n="nav_power">Power Flow</span>
+                </button>
+                <button onclick="switchTab('domotica')" id="tab-domotica" class="nav-tab px-3.5 py-2.5 rounded-t-lg flex items-center gap-2 whitespace-nowrap text-yellow-200 hover:bg-amber-600/40 font-bold border-b-2 border-yellow-300">
+                    <i class="fa-solid fa-house-signal text-yellow-300 animate-pulse"></i> <span data-i18n="nav_domotica">Domótica WiFi</span>
+                </button>
+                <button onclick="switchTab('config')" id="tab-config" class="nav-tab px-3.5 py-2.5 rounded-t-lg flex items-center gap-2 whitespace-nowrap text-white/90 hover:bg-amber-600/40">
+                    <i class="fa-solid fa-gear"></i> <span data-i18n="nav_config">Configuration</span>
+                </button>
+            </div>
+        </nav>
+    </header>
+
+    <!-- ==================== MAIN CONTENT CONTAINER ==================== -->
+    <main class="max-w-7xl mx-auto w-full p-3 sm:p-5 flex-grow">
+
+        <!-- ==================== TAB 1: DASHBOARD ==================== -->
+        <div id="view-dashboard" class="tab-view space-y-5">
+            
+            <!-- Top Row: Metric Overview Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                
+                <!-- Inverter Card -->
+                <div class="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center space-x-4">
+                    <div class="p-3 bg-amber-100 dark:bg-amber-900/40 rounded-xl text-amber-600 dark:text-amber-400">
+                        <i class="fa-solid fa-microchip text-2xl sm:text-3xl"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-400 font-semibold uppercase tracking-wider" data-i18n="card_inv_status">Inverter Status</div>
+                        <div class="text-base font-bold text-slate-800 dark:text-slate-100">Solar / Battery</div>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 mt-1">
+                            <span class="w-1.5 h-1.5 mr-1.5 bg-emerald-500 rounded-full animate-ping"></span> <span data-i18n="card_inv_mode">Hybrid Mode</span>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Solar PV Card -->
+                <div class="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center space-x-4">
+                    <div class="p-3 bg-yellow-100 dark:bg-yellow-900/40 rounded-xl text-yellow-500 dark:text-yellow-400">
+                        <i class="fa-solid fa-sun text-2xl sm:text-3xl"></i>
+                    </div>
+                    <div class="flex-grow">
+                        <div class="text-xs text-slate-400 font-semibold uppercase tracking-wider" data-i18n="card_pv_prod">Solar PV Production</div>
+                        <div class="flex justify-between items-baseline mt-1">
+                            <span class="text-xs text-slate-500">24h:</span>
+                            <span class="text-sm font-bold text-slate-800 dark:text-slate-200">21.2 kWh</span>
+                        </div>
+                        <div class="flex justify-between items-baseline">
+                            <span class="text-xs text-slate-500">7d:</span>
+                            <span class="text-sm font-bold text-slate-800 dark:text-slate-200">164.6 kWh</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Grid Card -->
+                <div class="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center space-x-4">
+                    <div class="p-3 bg-blue-100 dark:bg-blue-900/40 rounded-xl text-blue-600 dark:text-blue-400">
+                        <i class="fa-solid fa-plug text-2xl sm:text-3xl"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-400 font-semibold uppercase tracking-wider" data-i18n="card_grid_net">Grid Network</div>
+                        <div class="text-lg font-bold text-slate-800 dark:text-slate-100 mt-0.5">230.9 V</div>
+                        <div class="text-xs text-emerald-500 font-medium flex items-center gap-1 mt-0.5">
+                            <i class="fa-solid fa-circle-check text-[10px]"></i> 50.0 Hz Synced
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Battery Card -->
+                <div class="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center space-x-4">
+                    <div class="p-3 bg-emerald-100 dark:bg-emerald-900/40 rounded-xl text-emerald-600 dark:text-emerald-400">
+                        <i class="fa-solid fa-battery-three-quarters text-2xl sm:text-3xl"></i>
+                    </div>
+                    <div class="w-full">
+                        <div class="text-xs text-slate-400 font-semibold uppercase tracking-wider">LiFePO4 Battery</div>
+                        <div class="flex justify-between items-center mt-0.5">
+                            <span class="text-lg font-bold text-slate-800 dark:text-slate-100">78%</span>
+                            <span class="text-xs text-emerald-500 font-bold"><i class="fa-solid fa-bolt"></i> <span data-i18n="card_batt_status">Carga</span></span>
+                        </div>
+                        <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 mt-1.5 overflow-hidden">
+                            <div class="bg-emerald-500 h-2 rounded-full transition-all duration-500" style="width: 78%"></div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Middle Row: Power Semi-Gauges + Overview Live Chart -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                
+                <!-- Left: 4 Circular Semi-Gauges (5 cols on lg) -->
+                <div class="lg:col-span-5 bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+                    <div class="flex justify-between items-center mb-4 border-b pb-2 dark:border-slate-700">
+                        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider" data-i18n="gauge_title">Potencia en Tiempo Real</h3>
+                        <span class="text-[10px] bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 font-semibold px-2 py-0.5 rounded" data-i18n="gauge_update">
+                            Actualizado hace 2s
+                        </span>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-y-6 gap-x-4">
+                        <!-- Gauge 1: Load -->
+                        <div class="text-center">
+                            <div class="gauge-container">
+                                <div class="gauge-body"></div>
+                                <div class="gauge-fill bg-blue-500" id="gauge-load" style="transform: rotate(0.18turn);"></div>
+                                <div class="gauge-cover">
+                                    <div class="text-center">
+                                        <div class="text-sm sm:text-base font-extrabold text-slate-800 dark:text-slate-100" id="val-load">337 W</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300 mt-1 block" data-i18n="gauge_load">Load Power</span>
+                        </div>
+
+                        <!-- Gauge 2: Solar PV -->
+                        <div class="text-center">
+                            <div class="gauge-container">
+                                <div class="gauge-body"></div>
+                                <div class="gauge-fill bg-amber-400" id="gauge-pv" style="transform: rotate(0.42turn);"></div>
+                                <div class="gauge-cover">
+                                    <div class="text-center">
+                                        <div class="text-sm sm:text-base font-extrabold text-slate-800 dark:text-slate-100" id="val-pv">2,150 W</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300 mt-1 block" data-i18n="gauge_solar">Solar PV</span>
+                        </div>
+
+                        <!-- Gauge 3: Grid -->
+                        <div class="text-center">
+                            <div class="gauge-container">
+                                <div class="gauge-body"></div>
+                                <div class="gauge-fill bg-slate-400" id="gauge-grid" style="transform: rotate(0.02turn);"></div>
+                                <div class="gauge-cover">
+                                    <div class="text-center">
+                                        <div class="text-sm sm:text-base font-extrabold text-slate-800 dark:text-slate-100" id="val-grid">0 W</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300 mt-1 block" data-i18n="gauge_grid">Grid Power</span>
+                        </div>
+
+                        <!-- Gauge 4: Battery -->
+                        <div class="text-center">
+                            <div class="gauge-container">
+                                <div class="gauge-body"></div>
+                                <div class="gauge-fill bg-emerald-500" id="gauge-battery" style="transform: rotate(0.28turn);"></div>
+                                <div class="gauge-cover">
+                                    <div class="text-center">
+                                        <div class="text-sm sm:text-base font-extrabold text-slate-800 dark:text-slate-100" id="val-battery">+1,813 W</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <span class="text-xs font-semibold text-slate-600 dark:text-slate-300 mt-1 block" data-i18n="gauge_batt">Battery Charge</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Chart.js Overview (7 cols on lg) -->
+                <div class="lg:col-span-7 bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col justify-between">
+                    <div class="flex flex-wrap justify-between items-center mb-3 gap-2">
+                        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider" data-i18n="chart_title">Overview Graph (24 Hours)</h3>
+                        <div class="flex items-center space-x-3 text-xs">
+                            <span class="flex items-center gap-1"><span class="w-3 h-3 bg-blue-500 rounded-sm inline-block"></span> <span data-i18n="chart_leg_load">Load</span></span>
+                            <span class="flex items-center gap-1"><span class="w-3 h-3 bg-amber-400 rounded-sm inline-block"></span> <span data-i18n="chart_leg_solar">Solar PV</span></span>
+                            <span class="flex items-center gap-1"><span class="w-3 h-3 bg-red-500 rounded-sm inline-block"></span> <span data-i18n="chart_leg_grid">Grid</span></span>
+                        </div>
+                    </div>
+                    <div class="relative w-full h-64 sm:h-72">
+                        <canvas id="overviewChart"></canvas>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- ==================== TAB 2: CHARTS ==================== -->
+        <div id="view-charts" class="tab-view hidden space-y-5">
+            <div class="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+                <div class="flex flex-wrap justify-between items-center mb-4 gap-2">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800 dark:text-slate-100" data-i18n="hist_title">Análisis Histórico de Energía</h3>
+                        <p class="text-xs text-slate-400" data-i18n="hist_subtitle">Comparativa de consumo y generación solar acumulada</p>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button onclick="setChartFilter('day')" id="filter-day" class="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-semibold shadow-sm" data-i18n="filter_day">Día</button>
+                        <button onclick="setChartFilter('week')" id="filter-week" class="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold hover:bg-slate-300" data-i18n="filter_week">Semana</button>
+                        <button onclick="setChartFilter('month')" id="filter-month" class="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold hover:bg-slate-300" data-i18n="filter_month">Mes</button>
+                    </div>
+                </div>
+                <div class="h-80 w-full relative">
+                    <canvas id="detailedChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== TAB 3: TOTALS ==================== -->
+        <div id="view-totals" class="tab-view hidden space-y-5">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 text-center">
+                    <i class="fa-solid fa-sun text-amber-500 text-4xl mb-3"></i>
+                    <h4 class="text-slate-400 text-xs font-semibold uppercase" data-i18n="total_solar">Generación Solar Total</h4>
+                    <p class="text-2xl font-extrabold text-slate-800 dark:text-slate-100 mt-2">1,420.8 kWh</p>
+                    <p class="text-[11px] text-emerald-500 mt-1 font-medium"><i class="fa-solid fa-arrow-trend-up"></i> <span data-i18n="total_solar_sub">+12% este mes</span></p>
+                </div>
+
+                <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 text-center">
+                    <i class="fa-solid fa-house-lightning text-blue-500 text-4xl mb-3"></i>
+                    <h4 class="text-slate-400 text-xs font-semibold uppercase" data-i18n="total_home">Consumo Total Casa</h4>
+                    <p class="text-2xl font-extrabold text-slate-800 dark:text-slate-100 mt-2">1,180.2 kWh</p>
+                    <p class="text-[11px] text-slate-400 mt-1" data-i18n="total_home_sub">Acumulado anual</p>
+                </div>
+
+                <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 text-center">
+                    <i class="fa-solid fa-piggy-bank text-emerald-500 text-4xl mb-3"></i>
+                    <h4 class="text-slate-400 text-xs font-semibold uppercase" data-i18n="total_savings">Ahorro Red Estimado</h4>
+                    <p class="text-2xl font-extrabold text-slate-800 dark:text-slate-100 mt-2">$213.50 USD</p>
+                    <p class="text-[11px] text-emerald-500 mt-1 font-medium" data-i18n="total_savings_sub">82% Autoconsumo</p>
+                </div>
+
+                <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 text-center">
+                    <i class="fa-solid fa-leaf text-green-500 text-4xl mb-3"></i>
+                    <h4 class="text-slate-400 text-xs font-semibold uppercase" data-i18n="total_co2">Huella CO2 Evitada</h4>
+                    <p class="text-2xl font-extrabold text-slate-800 dark:text-slate-100 mt-2">1.13 Toneladas</p>
+                    <p class="text-[11px] text-slate-400 mt-1" data-i18n="total_co2_sub">Eq. a ~52 árboles</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== TAB 4: POWER FLOW ==================== -->
+        <div id="view-power" class="tab-view hidden space-y-5">
+            <div class="bg-slate-950 text-white p-5 sm:p-7 rounded-2xl shadow-xl border border-slate-800 relative">
+                <div class="flex justify-between items-center mb-4 border-b border-slate-800 pb-3">
+                    <h3 class="text-base font-bold text-amber-400 flex items-center gap-2">
+                        <i class="fa-solid fa-diagram-project"></i> <span data-i18n="flow_title">Diagrama de Flujo Energético</span>
+                    </h3>
+                    <span class="text-xs bg-emerald-900/60 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded-full" data-i18n="flow_status">
+                        Inversor Híbrido Activo
+                    </span>
+                </div>
+                
+                <!-- Flow Chart Diagram Box -->
+                <div class="relative w-full max-w-2xl mx-auto h-[400px] bg-slate-900/90 rounded-xl p-4 border border-slate-800 flex items-center justify-center overflow-hidden">
+                    
+                    <svg class="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+                        <!-- Solar to Inverter -->
+                        <line x1="50%" y1="18%" x2="50%" y2="44%" stroke="#f59e0b" stroke-width="3" class="flow-line-active" />
+                        <!-- Battery to Inverter -->
+                        <line x1="18%" y1="50%" x2="42%" y2="50%" stroke="#10b981" stroke-width="3" class="flow-line-active" />
+                        <!-- Grid to Inverter (Idle) -->
+                        <line x1="82%" y1="50%" x2="58%" y2="50%" stroke="#475569" stroke-width="2" />
+                        <!-- Inverter to Home -->
+                        <line x1="50%" y1="56%" x2="50%" y2="82%" stroke="#3b82f6" stroke-width="3" class="flow-line-active" />
+                    </svg>
+
+                    <!-- Top Node: Solar Panels -->
+                    <div class="absolute top-[8%] left-[50%] -translate-x-1/2 bg-amber-500/20 border-2 border-amber-500 p-3 rounded-2xl text-center w-36 shadow-lg shadow-amber-500/10 backdrop-blur-md">
+                        <i class="fa-solid fa-solar-panel text-amber-400 text-2xl mb-1"></i>
+                        <div class="text-[10px] font-bold text-amber-200 uppercase" data-i18n="node_solar">PLACA SOLAR</div>
+                        <div class="text-sm font-black text-white">2.15 kW</div>
+                    </div>
+
+                    <!-- Left Node: Battery -->
+                    <div class="absolute top-[40%] left-[5%] sm:left-[8%] bg-emerald-500/20 border-2 border-emerald-500 p-3 rounded-2xl text-center w-32 shadow-lg shadow-emerald-500/10 backdrop-blur-md">
+                        <i class="fa-solid fa-car-battery text-emerald-400 text-2xl mb-1"></i>
+                        <div class="text-[10px] font-bold text-emerald-200 uppercase" data-i18n="node_batt">BATERÍA</div>
+                        <div class="text-sm font-black text-white">+1.81 kW</div>
+                        <div class="text-[10px] text-emerald-300 font-medium">SOC 78%</div>
+                    </div>
+
+                    <!-- Center Node: Hybrid Inverter -->
+                    <div class="absolute top-[40%] left-[50%] -translate-x-1/2 bg-slate-800 border-2 border-amber-400 p-4 rounded-2xl text-center w-36 shadow-2xl z-10">
+                        <i class="fa-solid fa-boxes-stacked text-amber-400 text-2xl mb-1"></i>
+                        <div class="text-xs font-bold text-slate-200" data-i18n="node_inv">INVERSOR</div>
+                        <div class="text-[11px] text-emerald-400 font-semibold mt-0.5" data-i18n="node_inv_sub">Autoconsumo</div>
+                    </div>
+
+                    <!-- Right Node: Grid -->
+                    <div class="absolute top-[40%] right-[5%] sm:right-[8%] bg-slate-800/80 border-2 border-slate-700 p-3 rounded-2xl text-center w-32 backdrop-blur-md">
+                        <i class="fa-solid fa-tower-cell text-slate-400 text-2xl mb-1"></i>
+                        <div class="text-[10px] font-bold text-slate-300 uppercase" data-i18n="node_grid">RED ELÉCTRICA</div>
+                        <div class="text-sm font-black text-white">0.00 kW</div>
+                        <div class="text-[10px] text-slate-400">Standby</div>
+                    </div>
+
+                    <!-- Bottom Node: Home Consumption -->
+                    <div class="absolute bottom-[8%] left-[50%] -translate-x-1/2 bg-blue-500/20 border-2 border-blue-500 p-3 rounded-2xl text-center w-36 shadow-lg shadow-blue-500/10 backdrop-blur-md">
+                        <i class="fa-solid fa-house-lightning text-blue-400 text-2xl mb-1"></i>
+                        <div class="text-[10px] font-bold text-blue-200 uppercase" data-i18n="node_home">CONSUMO CASA</div>
+                        <div class="text-sm font-black text-white">0.34 kW</div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== TAB 5: DOMÓTICA WIFI ==================== -->
+        <div id="view-domotica" class="tab-view hidden space-y-5">
+            
+            <!-- Domótica Banner -->
+            <div class="bg-gradient-to-r from-amber-500 to-orange-600 rounded-2xl p-5 text-white shadow-md flex flex-wrap justify-between items-center gap-4">
+                <div>
+                    <h2 class="text-lg sm:text-xl font-extrabold flex items-center gap-2">
+                        <i class="fa-solid fa-wifi"></i> <span data-i18n="dom_title">Control Domótico WiFi Solar</span>
+                    </h2>
+                    <p class="text-xs text-amber-100 mt-1" data-i18n="dom_subtitle">Gestión inteligente de cargas acoplada a la generación excedente fotovoltaica</p>
+                </div>
+                <div class="flex items-center space-x-3 bg-white/20 backdrop-blur-md px-4 py-2 rounded-xl text-xs sm:text-sm font-medium">
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-2.5 h-2.5 bg-green-400 rounded-full animate-ping"></span> <span data-i18n="dom_networks">4 Redes WiFi</span>
+                    </span>
+                    <span class="text-amber-200">|</span>
+                    <span><span data-i18n="dom_loads">Cargas WiFi:</span> <strong>1.40 kW</strong></span>
+                </div>
+            </div>
+
+            <!-- Smart Devices Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                
+                <!-- Smart Device 1: Pool Pump -->
+                <div class="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-sm border border-slate-200 dark:border-slate-700 transition hover:shadow-md">
+                    <div class="flex justify-between items-start">
+                        <div class="flex items-center space-x-3">
+                            <div id="icon-bg-pump" class="p-3 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 rounded-xl">
+                                <i class="fa-solid fa-water-ladder text-2xl"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-slate-800 dark:text-slate-100" data-i18n="dev_pump">Bomba de Piscina</h3>
+                                <p class="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                                    <i class="fa-solid fa-wifi text-emerald-500 text-[10px]"></i> Sonoff Pow R3 (192.168.1.42)
+                                </p>
+                            </div>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" checked id="toggle-pump" onchange="toggleDevice('pump')" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                    </div>
+
+                    <div class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-700/60 flex justify-between items-center text-xs">
+                        <span class="text-slate-500" data-i18n="dev_auto">Automatización:</span>
+                        <span class="px-2 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded font-semibold" data-i18n="dev_pump_auto">Excedente > 1.5kW</span>
+                    </div>
+
+                    <div class="mt-3 flex justify-between items-baseline">
+                        <span class="text-xs font-semibold text-slate-400" data-i18n="dev_power">Potencia Actual:</span>
+                        <span id="power-pump" class="text-lg font-extrabold text-slate-800 dark:text-slate-100">750 W</span>
+                    </div>
+                </div>
+
+                <!-- Smart Device 2: Air Conditioner -->
+                <div class="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-sm border border-slate-200 dark:border-slate-700 transition hover:shadow-md">
+                    <div class="flex justify-between items-start">
+                        <div class="flex items-center space-x-3">
+                            <div id="icon-bg-ac" class="p-3 bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded-xl">
+                                <i class="fa-solid fa-snowflake text-2xl"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-slate-800 dark:text-slate-100" data-i18n="dev_ac">Aire Acondicionado</h3>
+                                <p class="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                                    <i class="fa-solid fa-wifi text-emerald-500 text-[10px]"></i> Tuya Thermostat
+                                </p>
+                            </div>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" checked id="toggle-ac" onchange="toggleDevice('ac')" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                        </label>
+                    </div>
+
+                    <div class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-700/60 flex justify-between items-center text-xs">
+                        <span class="text-slate-500" data-i18n="dev_target_temp">Temperatura Objetivo:</span>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="adjustTemp(-1)" class="w-6 h-6 bg-slate-200 dark:bg-slate-700 rounded text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-300">-</button>
+                            <span id="temp-val" class="font-bold text-slate-800 dark:text-slate-100">22°C</span>
+                            <button onclick="adjustTemp(1)" class="w-6 h-6 bg-slate-200 dark:bg-slate-700 rounded text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-300">+</button>
+                        </div>
+                    </div>
+
+                    <div class="mt-3 flex justify-between items-baseline">
+                        <span class="text-xs font-semibold text-slate-400" data-i18n="dev_power">Potencia Actual:</span>
+                        <span id="power-ac" class="text-lg font-extrabold text-slate-800 dark:text-slate-100">600 W</span>
+                    </div>
+                </div>
+
+                <!-- Smart Device 3: EV Wallbox Charger -->
+                <div class="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-sm border border-slate-200 dark:border-slate-700 transition hover:shadow-md">
+                    <div class="flex justify-between items-start">
+                        <div class="flex items-center space-x-3">
+                            <div id="icon-bg-ev" class="p-3 bg-slate-100 dark:bg-slate-700 text-slate-400 rounded-xl">
+                                <i class="fa-solid fa-charging-station text-2xl"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-slate-800 dark:text-slate-100" data-i18n="dev_ev">Cargador Vehículo EV</h3>
+                                <p class="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                                    <i class="fa-solid fa-wifi text-emerald-500 text-[10px]"></i> Smart Wallbox WiFi
+                                </p>
+                            </div>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="toggle-ev" onchange="toggleDevice('ev')" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                        </label>
+                    </div>
+
+                    <div class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-700/60 flex justify-between items-center text-xs">
+                        <span class="text-slate-500" data-i18n="dev_charge_mode">Modo Carga:</span>
+                        <span class="px-2 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded font-semibold">Eco Solar Balance</span>
+                    </div>
+
+                    <div class="mt-3 flex justify-between items-baseline">
+                        <span class="text-xs font-semibold text-slate-400" data-i18n="dev_power">Potencia Actual:</span>
+                        <span id="power-ev" class="text-lg font-extrabold text-slate-800 dark:text-slate-100">0 W</span>
+                    </div>
+                </div>
+
+                <!-- Smart Device 4: Garden Smart Lights -->
+                <div class="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-sm border border-slate-200 dark:border-slate-700 transition hover:shadow-md">
+                    <div class="flex justify-between items-start">
+                        <div class="flex items-center space-x-3">
+                            <div id="icon-bg-lights" class="p-3 bg-yellow-100 dark:bg-yellow-900/40 text-yellow-600 dark:text-yellow-400 rounded-xl">
+                                <i class="fa-solid fa-lightbulb text-2xl"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-slate-800 dark:text-slate-100" data-i18n="dev_lights">Luces Jardín Exterior</h3>
+                                <p class="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                                    <i class="fa-solid fa-wifi text-emerald-500 text-[10px]"></i> Shelly 1PM WiFi
+                                </p>
+                            </div>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" checked id="toggle-lights" onchange="toggleDevice('lights')" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
+                        </label>
+                    </div>
+
+                    <div class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-700/60 flex justify-between items-center text-xs">
+                        <span class="text-slate-500" data-i18n="dev_schedule">Horario:</span>
+                        <span class="text-slate-700 dark:text-slate-300 font-medium">Auto Sunset ON</span>
+                    </div>
+
+                    <div class="mt-3 flex justify-between items-baseline">
+                        <span class="text-xs font-semibold text-slate-400" data-i18n="dev_power">Potencia Actual:</span>
+                        <span id="power-lights" class="text-lg font-extrabold text-slate-800 dark:text-slate-100">50 W</span>
+                    </div>
+                </div>
+
+                <!-- Add Device Trigger Button -->
+                <div onclick="openAddDeviceModal()" class="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-5 border-2 border-dashed border-slate-300 dark:border-slate-700 flex flex-col items-center justify-center text-center cursor-pointer hover:border-amber-500 dark:hover:border-amber-400 transition group">
+                    <div class="w-12 h-12 bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 rounded-full flex items-center justify-center text-xl mb-2 group-hover:scale-110 transition-transform">
+                        <i class="fa-solid fa-plus"></i>
+                    </div>
+                    <span class="text-sm font-bold text-slate-700 dark:text-slate-200" data-i18n="dev_add">Vincular Dispositivo WiFi</span>
+                    <span class="text-[11px] text-slate-400 mt-0.5" data-i18n="dev_add_sub">Añadir Tuya, Sonoff, Shelly o MQTT</span>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- ==================== TAB 6: CONFIGURATION ==================== -->
+        <div id="view-config" class="tab-view hidden space-y-5">
+            <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 max-w-2xl mx-auto space-y-4">
+                <h3 class="text-base font-bold border-b pb-3 dark:border-slate-700 flex items-center gap-2">
+                    <i class="fa-solid fa-sliders text-amber-500"></i> <span data-i18n="config_title">Ajustes de Sistema e Inversor</span>
+                </h3>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1" data-i18n="config_name">Nombre de la Planta Solar</label>
+                    <input type="text" value="Residencial Solar Assistant - Casa Central" class="w-full px-3.5 py-2 bg-slate-100 dark:bg-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">Broker MQTT / Server IP</label>
+                        <input type="text" value="192.168.1.150" class="w-full px-3.5 py-2 bg-slate-100 dark:bg-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1">Puerto MQTT</label>
+                        <input type="text" value="1883" class="w-full px-3.5 py-2 bg-slate-100 dark:bg-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                    </div>
+                </div>
+
+                <div class="pt-2 border-t dark:border-slate-700 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <span class="text-sm font-semibold block" data-i18n="config_auto">Corte por Excedente Automático</span>
+                            <span class="text-xs text-slate-400" data-i18n="config_auto_sub">Encender dispositivos WiFi automáticamente con exceso solar</span>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" checked class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                        </label>
+                    </div>
+                </div>
+
+                <button onclick="saveSettings()" class="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg shadow transition mt-4" data-i18n="config_save">
+                    Guardar Cambios
+                </button>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- ==================== ADD DEVICE MODAL ==================== -->
+    <div id="add-device-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+            <div class="flex justify-between items-center border-b pb-3 dark:border-slate-700">
+                <h3 class="font-bold text-base flex items-center gap-2">
+                    <i class="fa-solid fa-wifi text-amber-500"></i> <span data-i18n="modal_title">Vincular Dispositivo WiFi</span>
+                </h3>
+                <button onclick="closeAddDeviceModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1" data-i18n="modal_name">Nombre del Dispositivo</label>
+                    <input type="text" placeholder="Ej: Termo Eléctrico" class="w-full px-3.5 py-2 bg-slate-100 dark:bg-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1" data-i18n="modal_protocol">Protocolo / Marca</label>
+                    <select class="w-full px-3.5 py-2 bg-slate-100 dark:bg-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                        <option>Sonoff / eWeLink WiFi</option>
+                        <option>Tuya / Smart Life</option>
+                        <option>Shelly WiFi Relay</option>
+                        <option>MQTT Directo</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 mb-1" data-i18n="modal_ip">Dirección IP o Tópico MQTT</label>
+                    <input type="text" placeholder="192.168.1.XXX" class="w-full px-3.5 py-2 bg-slate-100 dark:bg-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                </div>
+            </div>
+
+            <div class="flex space-x-3 pt-2">
+                <button onclick="closeAddDeviceModal()" class="w-1/2 py-2 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-lg hover:bg-slate-300" data-i18n="modal_cancel">
+                    Cancelar
+                </button>
+                <button onclick="confirmAddDevice()" class="w-1/2 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg shadow" data-i18n="modal_search">
+                    Buscar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- FOOTER -->
+    <footer class="bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 py-3 text-center text-xs text-slate-400 mt-auto">
+        Solar Assistant & Domótica Control &copy; 2026 - Dashboard Frontend Responsive
+    </footer>
+
+    <!-- Archivo JS externo -->
+    <script src="script.js"></script>
+</body>
+</html>
