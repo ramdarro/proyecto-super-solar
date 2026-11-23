@@ -1,93 +1,102 @@
 body {
+    background: linear-gradient(135deg, #d97706 0%, #6d28d9 50%, #311042 100%);
+    background-attachment: fixed;
+    color: #f1f5f9;
     font-family: 'Inter', sans-serif;
-    -webkit-tap-highlight-color: transparent;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
 }
 
-/* Semi-gauge custom CSS */
-.gauge-container {
+.glass-panel {
+    background-color: rgba(15, 17, 26, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 1rem;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+}
+
+.glass-panel-subtle {
+    background-color: rgba(26, 29, 45, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 0.75rem;
+}
+
+.tab-content {
+    display: none;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+}
+
+.tab-content.active {
+    display: block;
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.nav-btn {
+    transition: all 0.2s ease;
+}
+.nav-btn.active {
+    background: linear-gradient(90deg, rgba(245, 158, 11, 0.2) 0%, rgba(124, 58, 237, 0.2) 100%);
+    border-left: 4px solid #f59e0b;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+.toggle-checkbox:checked {
+    right: 0;
+    border-color: #10b981;
+}
+.toggle-checkbox:checked + .toggle-label {
+    background-color: #10b981;
+}
+.toggle-label {
+    width: 3.25rem;
+    height: 1.75rem;
+    background-color: rgba(255, 255, 255, 0.15);
+    border-radius: 9999px;
     position: relative;
-    width: 130px;
-    height: 65px;
-    overflow: hidden;
-    margin: 0 auto;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
 }
-.gauge-body {
-    width: 130px;
-    height: 130px;
-    border-radius: 50%;
-    background: #e2e8f0;
+.toggle-label::after {
+    content: '';
     position: absolute;
-    top: 0;
-    left: 0;
-}
-.dark .gauge-body {
-    background: #334155;
-}
-.gauge-fill {
-    width: 130px;
-    height: 130px;
+    top: 0.1875rem;
+    left: 0.1875rem;
+    width: 1.375rem;
+    height: 1.375rem;
+    background-color: #ffffff;
     border-radius: 50%;
-    position: absolute;
-    top: 0;
-    left: 0;
-    clip-path: polygon(0 0, 100% 0, 100% 50%, 0 50%);
-    transform-origin: center center;
-    transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
-.gauge-cover {
-    width: 96px;
-    height: 96px;
-    background: white;
-    border-radius: 50%;
-    position: absolute;
-    top: 17px;
-    left: 17px;
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding-top: 8px;
-}
-.dark .gauge-cover {
-    background: #1e293b;
+.toggle-checkbox:checked + .toggle-label::after {
+    transform: translateX(1.5rem);
 }
 
-/* Active Navigation Tab Styling */
-.nav-tab {
-    border-bottom: 3px solid transparent;
-    transition: all 0.2s ease-in-out;
-}
-.nav-tab.active {
-    background-color: rgba(255, 255, 255, 0.95);
-    color: #d97706;
-    font-weight: 700;
-    border-bottom-color: #f59e0b;
-}
-.dark .nav-tab.active {
-    background-color: #1e293b;
-    color: #fbbf24;
-    border-bottom-color: #fbbf24;
-}
-
-/* Animated Power Flow Lines */
-@keyframes dash {
-    to {
-        stroke-dashoffset: -20;
-    }
-}
-.flow-line-active {
-    stroke-dasharray: 6, 6;
-    animation: dash 1s linear infinite;
-}
-
-/* Custom Scrollbar */
 ::-webkit-scrollbar {
-    height: 4px;
     width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: rgba(15, 17, 26, 0.5);
 }
 ::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
+    background: rgba(255, 255, 255, 0.2);
     border-radius: 4px;
 }
-.dark ::-webkit-scrollbar-thumb {
-    background: #475569;
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(245, 158, 11, 0.5);
+}
+
+.flow-line {
+    stroke-dasharray: 8, 8;
+    animation: dash 1.5s linear infinite;
+}
+@keyframes dash {
+    to {
+        stroke-dashoffset: -16;
+    }
 }
