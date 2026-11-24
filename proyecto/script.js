@@ -1,5 +1,5 @@
 // =====================================================================
-// SUNLYTICS PRO OS v2.4 - CONEXIÓN INTERACTIVA VOLTRONIC VM II 10kW
+// SUNLYTICS PRO OS v2.4 - CONEXIÓN INTERACTIVA + PERSISTENCIA POSTGRESQL
 // =====================================================================
 
 const SIM_CONFIG = {
@@ -8,6 +8,14 @@ const SIM_CONFIG = {
     tariffClp: 145,
     co2Factor: 0.41,
     baseHouseLoadKw: 0.45
+};
+
+// Potencias nominales de referencia cuando un equipo está apagado (0 W en BD)
+const nominalPowers = {
+    ev: 3200,
+    pool: 1100,
+    heater: 1800,
+    ac: 900
 };
 
 const voltronicState = {
@@ -27,13 +35,16 @@ const voltronicState = {
         pv1: { v: 368.5, a: 8.41 },
         pv2: { v: 342.0, a: 7.11 }
     },
-    devices: {
-        ev:     { active: true,  watts: 3200, activeLabel: 'Cargando' },
-        pool:   { active: false, watts: 1100, activeLabel: 'Encendido' },
-        heater: { active: true,  watts: 1800, activeLabel: 'Encendido' },
-        ac:     { active: true,  watts: 900,  activeLabel: 'Encendido' }
-    }
+    devices: {}
 };
+
+function getApiBase() {
+    const input = document.getElementById('node-url');
+    let url = input ? input.value.trim() : 'http://localhost:3000/api';
+    url = url.replace(/\/+$/, '');
+    if (url.endsWith('/v1')) url = url.slice(0, -3);
+    return url || 'http://localhost:3000/api';
+}
 
 function jitter(base, delta, min = -Infinity, max = Infinity) {
     const val = base + (Math.random() * 2 - 1) * delta;
@@ -42,6 +53,41 @@ function jitter(base, delta, min = -Infinity, max = Infinity) {
 
 function getCurrentTimestamp() {
     return new Date().toTimeString().split(' ')[0];
+}
+
+// =====================================================================
+// NOTIFICACIONES VISUALES (TOASTS DE ÉXITO Y ERROR)
+// =====================================================================
+function showToast(message, type = 'success') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const styles = {
+        success: 'bg-emerald-950/95 border-emerald-500/50 text-emerald-200',
+        error: 'bg-rose-950/95 border-rose-500/50 text-rose-200',
+        info: 'bg-slate-900/95 border-amber-500/50 text-amber-200'
+    };
+
+    const icons = {
+        success: 'ph-check-circle text-emerald-400',
+        error: 'ph-warning-circle text-rose-400',
+        info: 'ph-info text-amber-400'
+    };
+
+    const toast = document.createElement('div');
+    toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl border shadow-xl text-xs font-medium backdrop-blur-md transition-all duration-300 ${styles[type] || styles.info}`;
+    toast.innerHTML = `
+        <i class="ph-bold ${icons[type] || icons.info} text-base shrink-0"></i>
+        <span>${message}</span>
+    `;
+
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(8px)';
+        setTimeout(() => toast.remove(), 300);
+    }, 3500);
 }
 
 // =====================================================================
@@ -58,7 +104,372 @@ function switchTab(tabId) {
 }
 
 // =====================================================================
-// 2. MODAL DE DETECCIÓN Y CONEXIÓN MANUAL CON EL INVERSOR
+// 2. CARGA INICIAL DE DATOS DESDE POSTGRESQL (READ)
+// =====================================================================
+async function loadInitialDataFromDB() {
+    const apiBase = getApiBase();
+
+    try {
+        // 1. Cargar configuración de planta y tarifas (plant_settings)
+        const settingsRes = await fetch(`${apiBase}/settings`);
+        if (settingsRes.ok) {
+            const settingsData = await settingsRes.json();
+            if (settingsData.success && settingsData.plantSettings) {
+                const ps = settingsData.plantSettings;
+                SIM_CONFIG.tariffClp = Number(ps.energy_rate_clp) || 145;
+
+                const nameInput = document.getElementById('config-plant-name');
+                const kwpInput = document.getElementById('config-plant-kwp');
+                const rateInput = document.getElementById('config-energy-rate');
+                const sidePlant = document.getElementById('sidebar-plant-name');
+                const tariffLabel = document.getElementById('kpi-tariff-label');
+
+                if (nameInput) nameInput.value = ps.plant_name;
+                if (kwpInput) kwpInput.value = `${ps.installed_power_kwp} kWp`;
+                if (rateInput) rateInput.value = ps.energy_rate_clp;
+                if (sidePlant) sidePlant.textContent = ps.plant_name.replace('Planta ', '');
+                if (tariffLabel) tariffLabel.textContent = `Tarifa $${ps.energy_rate_clp}/kWh`;
+            }
+        }
+
+        // 2. Cargar dispositivos domóticos desde PostgreSQL (domotic_devices)
+        const dashRes = await fetch(`${apiBase}/dashboard`);
+        if (!dashRes.ok) throw new Error('Error consultando /api/dashboard');
+
+        const dashData = await dashRes.json();
+        if (dashData.success && dashData.devices) {
+            voltronicState.devices = dashData.devices;
+
+            // Guardar potencia nominal conocida de cada equipo activo
+            Object.values(voltronicState.devices).forEach(dev => {
+                if (dev.power > 0) {
+                    nominalPowers[dev.code] = dev.power;
+                } else if (!nominalPowers[dev.code]) {
+                    nominalPowers[dev.code] = 1000;
+                }
+            });
+
+            renderDevicesGrid();
+            if (dashData.solarState) {
+                const surplusKw = (dashData.solarState.gridPower / 1000).toFixed(2);
+                const domSurplus = document.getElementById('dom-surplus');
+                if (domSurplus) domSurplus.textContent = `${surplusKw} kW`;
+            }
+        }
+    } catch (err) {
+        console.error('Error cargando datos iniciales desde BD:', err);
+        showToast('No se pudo conectar con http://localhost:3000. Verifica que node src/app.js esté corriendo.', 'error');
+    }
+}
+
+// =====================================================================
+// 3. RENDERIZADO DINÁMICO Y CRUD DE DISPOSITIVOS DOMÓTICOS
+// =====================================================================
+function getDeviceVisualStyle(code, index) {
+    const presets = {
+        ev:     { icon: 'ph-car-profile',   color: 'purple', badge: 'PRIORIDAD 1', subtitle: 'Carga Inteligente 32A' },
+        pool:   { icon: 'ph-waves',         color: 'blue',   badge: 'PRIORIDAD 2', subtitle: 'Filtrado Solar Programado' },
+        heater: { icon: 'ph-thermometer-hot', color: 'amber', badge: 'PRIORIDAD 3', subtitle: 'Acumulador de Calor' },
+        ac:     { icon: 'ph-snowflake',     color: 'teal',   badge: 'PRIORIDAD 4', subtitle: 'Climatización Inverter' }
+    };
+
+    if (presets[code]) return presets[code];
+    return {
+        icon: 'ph-plugs',
+        color: 'emerald',
+        badge: `PRIORIDAD ${index + 1}`,
+        subtitle: 'Carga Gestionada por BD'
+    };
+}
+
+function renderDevicesGrid() {
+    const grid = document.getElementById('domotica-devices-grid');
+    const sideCount = document.getElementById('sidebar-dom-count');
+    if (!grid) return;
+
+    const deviceList = Object.values(voltronicState.devices);
+    const activeCount = deviceList.filter(d => d.active).length;
+
+    if (sideCount) {
+        sideCount.textContent = `${activeCount} ACT`;
+    }
+
+    if (deviceList.length === 0) {
+        grid.innerHTML = `
+            <div class="glass-panel p-6 text-xs text-slate-400 col-span-full text-center">
+                No hay dispositivos registrados en PostgreSQL. Haz clic en <strong>"Agregar Dispositivo"</strong>.
+            </div>
+        `;
+        return;
+    }
+
+    grid.innerHTML = deviceList.map((dev, idx) => {
+        const style = getDeviceVisualStyle(dev.code, idx);
+        const displayWatts = dev.active ? dev.power : (nominalPowers[dev.code] || 1000);
+        const powerText = dev.active
+            ? `Encendido @ ${(dev.power / 1000).toFixed(2)} kW`
+            : `Apagado (Nominal: ${displayWatts} W)`;
+        const powerClass = dev.active ? 'text-amber-400' : 'text-slate-400';
+
+        return `
+            <div class="glass-panel p-5 flex flex-col justify-between space-y-4">
+                <div class="flex justify-between items-start">
+                    <div class="p-3 rounded-xl bg-${style.color}-500/20 text-${style.color}-300 border border-${style.color}-500/30">
+                        <i class="ph-fill ${style.icon} text-2xl"></i>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-${style.color}-500/20 text-${style.color}-300">${style.badge}</span>
+                        <button onclick="openEditDeviceModal('${dev.code}')" class="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white transition-colors" title="Editar dispositivo">
+                            <i class="ph-bold ph-pencil-simple text-xs"></i>
+                        </button>
+                        <button onclick="deleteDeviceFromDB('${dev.code}')" class="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-300 transition-colors" title="Eliminar dispositivo">
+                            <i class="ph-bold ph-trash text-xs"></i>
+                        </button>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="font-bold text-base text-white">${dev.name}</h3>
+                    <p class="text-xs text-slate-400 font-mono">Código: ${dev.code}</p>
+                    <div class="mt-2 text-sm font-mono font-bold ${powerClass}" id="power-${dev.code}">${powerText}</div>
+                </div>
+                <div class="flex items-center justify-between pt-2 border-t border-white/10">
+                    <span class="text-xs text-slate-300 font-medium">Estado en BD</span>
+                    <div class="relative">
+                        <input type="checkbox" id="toggle-${dev.code}" class="hidden toggle-checkbox" ${dev.active ? 'checked' : ''} onchange="toggleDevice('${dev.code}')">
+                        <label for="toggle-${dev.code}" class="toggle-label block"></label>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// UPDATE (Toggle): Encender/Apagar y guardar en PostgreSQL
+async function toggleDevice(code) {
+    const checkbox = document.getElementById('toggle-' + code);
+    if (!checkbox) return;
+
+    const newState = checkbox.checked;
+    const wattsToUse = nominalPowers[code] || 1000;
+    checkbox.disabled = true;
+
+    try {
+        const res = await fetch(`${getApiBase()}/devices/toggle`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                deviceId: code,
+                state: newState,
+                powerWatts: wattsToUse
+            })
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Error actualizando dispositivo en BD');
+        }
+
+        if (voltronicState.devices[code]) {
+            voltronicState.devices[code].active = data.device.active;
+            voltronicState.devices[code].power = data.device.power;
+        }
+
+        renderDevicesGrid();
+        appendSystemEvent(`BD actualizada: [${code.toUpperCase()}] ${newState ? 'ENCENDIDO (' + wattsToUse + 'W)' : 'APAGADO'}.`, newState ? 'blue' : 'amber');
+        showToast(`${data.device.name} ${newState ? 'encendido' : 'apagado'} y guardado en PostgreSQL`, 'success');
+
+        if (voltronicState.connected) {
+            runSimulationTick();
+        } else if (data.solarState) {
+            const domSurplus = document.getElementById('dom-surplus');
+            if (domSurplus) domSurplus.textContent = `${(data.solarState.gridPower / 1000).toFixed(2)} kW`;
+        }
+    } catch (err) {
+        // Revertir visualmente si falló la escritura en PostgreSQL
+        checkbox.checked = !newState;
+        showToast(err.message, 'error');
+    } finally {
+        checkbox.disabled = false;
+    }
+}
+
+// Modal CREATE / UPDATE
+function openCreateDeviceModal() {
+    const modal = document.getElementById('device-form-modal');
+    if (!modal) return;
+
+    document.getElementById('device-modal-title').textContent = 'Nuevo Dispositivo Domótico';
+    document.getElementById('device-form-mode').value = 'create';
+    document.getElementById('device-form-edit-id').value = '';
+    document.getElementById('device-code-group').classList.remove('hidden');
+
+    const codeInput = document.getElementById('device-form-code');
+    codeInput.value = '';
+    codeInput.required = true;
+    document.getElementById('device-form-name').value = '';
+    document.getElementById('device-form-power').value = '';
+
+    modal.classList.remove('hidden');
+}
+
+function openEditDeviceModal(code) {
+    const dev = voltronicState.devices[code];
+    const modal = document.getElementById('device-form-modal');
+    if (!dev || !modal) return;
+
+    document.getElementById('device-modal-title').textContent = `Editar: ${dev.name}`;
+    document.getElementById('device-form-mode').value = 'edit';
+    document.getElementById('device-form-edit-id').value = dev.code;
+    document.getElementById('device-code-group').classList.add('hidden');
+
+    const codeInput = document.getElementById('device-form-code');
+    codeInput.required = false;
+    document.getElementById('device-form-name').value = dev.name;
+    document.getElementById('device-form-power').value = dev.active ? dev.power : (nominalPowers[code] || 1000);
+
+    modal.classList.remove('hidden');
+}
+
+function closeDeviceModal() {
+    const modal = document.getElementById('device-form-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function submitDeviceForm(event) {
+    event.preventDefault();
+
+    const mode = document.getElementById('device-form-mode').value;
+    const editId = document.getElementById('device-form-edit-id').value;
+    const code = document.getElementById('device-form-code').value.trim().toLowerCase();
+    const name = document.getElementById('device-form-name').value.trim();
+    const powerWatts = Number(document.getElementById('device-form-power').value);
+    const submitBtn = document.getElementById('btn-save-device');
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Guardando...';
+
+    try {
+        let res;
+        if (mode === 'create') {
+            res = await fetch(`${getApiBase()}/devices`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ deviceCode: code, name, powerWatts })
+            });
+        } else {
+            res = await fetch(`${getApiBase()}/devices/${encodeURIComponent(editId)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, powerWatts })
+            });
+        }
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Error guardando dispositivo en PostgreSQL');
+        }
+
+        const targetCode = mode === 'create' ? code : editId;
+        nominalPowers[targetCode] = powerWatts;
+
+        closeDeviceModal();
+        await loadInitialDataFromDB();
+        if (voltronicState.connected) runSimulationTick();
+
+        showToast(mode === 'create' ? 'Dispositivo creado en PostgreSQL' : 'Dispositivo actualizado en PostgreSQL', 'success');
+        appendSystemEvent(`Dispositivo [${targetCode.toUpperCase()}] ${mode === 'create' ? 'registrado' : 'modificado'} en BD.`, 'emerald');
+    } catch (err) {
+        showToast(err.message, 'error');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Guardar en BD';
+    }
+}
+
+// DELETE: Eliminar dispositivo de PostgreSQL
+async function deleteDeviceFromDB(code) {
+    const dev = voltronicState.devices[code];
+    if (!dev) return;
+
+    const confirmed = window.confirm(`¿Seguro que deseas eliminar "${dev.name}" de la base de datos PostgreSQL?`);
+    if (!confirmed) return;
+
+    try {
+        const res = await fetch(`${getApiBase()}/devices/${encodeURIComponent(code)}`, {
+            method: 'DELETE'
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'No se pudo eliminar el dispositivo');
+        }
+
+        delete nominalPowers[code];
+        await loadInitialDataFromDB();
+        if (voltronicState.connected) runSimulationTick();
+
+        showToast(`Dispositivo "${dev.name}" eliminado de PostgreSQL`, 'success');
+        appendSystemEvent(`Dispositivo [${code.toUpperCase()}] eliminado de la base de datos.`, 'amber');
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+// =====================================================================
+// 4. GUARDAR CONFIGURACIÓN DE TARIFA EN POSTGRESQL (UPDATE)
+// =====================================================================
+async function savePlantSettings() {
+    const rateInput = document.getElementById('config-energy-rate');
+    const statusSpan = document.getElementById('settings-save-status');
+    const btn = document.getElementById('btn-save-settings');
+
+    const rate = Number(rateInput ? rateInput.value : 0);
+    if (!rate || rate <= 0) {
+        showToast('Ingresa una tarifa eléctrica válida mayor a 0', 'error');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Guardando...';
+
+    try {
+        const res = await fetch(`${getApiBase()}/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ energyRateCLP: rate })
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Error guardando tarifa en PostgreSQL');
+        }
+
+        SIM_CONFIG.tariffClp = Number(data.plantSettings.energy_rate_clp);
+        const tariffLabel = document.getElementById('kpi-tariff-label');
+        if (tariffLabel) tariffLabel.textContent = `Tarifa $${SIM_CONFIG.tariffClp}/kWh`;
+
+        if (statusSpan) {
+            statusSpan.className = 'text-xs font-mono text-emerald-400';
+            statusSpan.textContent = `✔ Guardado ($${SIM_CONFIG.tariffClp}/kWh)`;
+        }
+
+        if (voltronicState.connected) runSimulationTick();
+        showToast(`Tarifa actualizada a $${SIM_CONFIG.tariffClp} CLP/kWh en PostgreSQL`, 'success');
+        appendSystemEvent(`Tarifa eléctrica actualizada a $${SIM_CONFIG.tariffClp}/kWh en BD.`, 'emerald');
+    } catch (err) {
+        if (statusSpan) {
+            statusSpan.className = 'text-xs font-mono text-rose-400';
+            statusSpan.textContent = `✖ Error al guardar`;
+        }
+        showToast(err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Guardar Tarifa en BD';
+    }
+}
+
+// =====================================================================
+// 5. MODAL DE DETECCIÓN Y CONEXIÓN CON EL INVERSOR Y BACKEND
 // =====================================================================
 function openConnectionModal() {
     const modal = document.getElementById('inverter-connect-modal');
@@ -66,10 +477,8 @@ function openConnectionModal() {
     modal.classList.remove('hidden');
 
     if (voltronicState.connected) {
-        // Si ya está conectado, mostrar tarjeta activa con opción de desconectar
         showModalDeviceState(true);
     } else {
-        // Si está desconectado, simular búsqueda del inversor y mostrar botón Conectar
         startDeviceDiscovery();
     }
 }
@@ -95,7 +504,7 @@ function startDeviceDiscovery() {
             logEl.textContent = 'Dispositivo Voltronic listo. Haz clic en "Conectar Inversor".';
         }
         showModalDeviceState(voltronicState.connected);
-    }, 850);
+    }, 650);
 }
 
 function showModalDeviceState(isConnected) {
@@ -124,41 +533,58 @@ function showModalDeviceState(isConnected) {
     }
 }
 
-function connectSelectedInverter() {
+async function connectSelectedInverter() {
     const btn = document.getElementById('btn-modal-connect');
     const logEl = document.getElementById('modal-handshake-log');
 
     if (btn) {
         btn.disabled = true;
-        btn.innerHTML = `<i class="ph-bold ph-spinner-gap text-base animate-spin"></i><span>Enlazando (Handshake PI30)...</span>`;
+        btn.innerHTML = `<i class="ph-bold ph-spinner-gap text-base animate-spin"></i><span>Verificando Backend y PostgreSQL...</span>`;
     }
     if (logEl) {
         logEl.className = 'text-[11px] font-mono text-amber-400 text-center min-h-[16px]';
-        logEl.textContent = 'Enviando comando QPI / QPIRI a /dev/ttyUSB0...';
+        logEl.textContent = 'Consultando estado de Node.js + PostgreSQL...';
     }
 
-    setTimeout(() => {
+    try {
+        const healthRes = await fetch(`${getApiBase()}/v1/health`);
+        const healthData = await healthRes.json();
+        if (!healthRes.ok || !healthData.success) {
+            throw new Error(healthData.error || 'El backend no responde');
+        }
+
+        await loadInitialDataFromDB();
+
         voltronicState.connected = true;
         updateGlobalConnectionUI(true);
         showModalDeviceState(true);
 
         if (logEl) {
             logEl.className = 'text-[11px] font-mono text-emerald-400 text-center min-h-[16px]';
-            logEl.textContent = '¡Conectado! Recibiendo telemetría en vivo...';
+            logEl.textContent = '¡Conectado a PostgreSQL e Inversor PI30!';
         }
 
-        appendSystemEvent('Conexión establecida con Voltronic Axpert VM II 10kW (PI30 OK).', 'emerald');
+        appendSystemEvent('Conexión establecida con Backend PostgreSQL e Inversor Voltronic VM II 10kW.', 'emerald');
+        showToast('Conectado a PostgreSQL e Inversor', 'success');
 
-        // Primera lectura inmediata y arranque de intervalo
         runSimulationTick();
         if (voltronicState.timerId) clearInterval(voltronicState.timerId);
         voltronicState.timerId = setInterval(runSimulationTick, SIM_CONFIG.intervalMs);
 
-        // Cerrar modal automáticamente tras confirmar conexión
         setTimeout(() => {
             closeConnectionModal();
-        }, 650);
-    }, 800);
+        }, 550);
+    } catch (err) {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i class="ph-bold ph-plug text-base"></i><span>Reintentar Conexión</span>`;
+        }
+        if (logEl) {
+            logEl.className = 'text-[11px] font-mono text-rose-400 text-center min-h-[16px]';
+            logEl.textContent = `Error: ${err.message}`;
+        }
+        showToast('Error conectando con el servidor: ' + err.message, 'error');
+    }
 }
 
 function disconnectInverter() {
@@ -190,7 +616,6 @@ function updateGlobalConnectionUI(isOnline) {
     const invCardStatus = document.getElementById('inv-card-status');
     const configResult = document.getElementById('node-test-result');
 
-    // Líneas del diagrama SVG
     const lineSolar = document.getElementById('svg-line-solar');
     const lineHome = document.getElementById('svg-line-home');
     const lineBatt = document.getElementById('svg-line-batt');
@@ -198,11 +623,11 @@ function updateGlobalConnectionUI(isOnline) {
     if (isOnline) {
         if (pill) {
             pill.className = 'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:opacity-90 cursor-pointer';
-            pill.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span><span id="node-status-text" class="hidden xl:inline text-[11px]">VM II LIVE</span>`;
+            pill.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span><span id="node-status-text" class="hidden xl:inline text-[11px]">DB + LIVE</span>`;
         }
         if (headerBadge) {
             headerBadge.className = 'text-xs font-mono font-normal bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30';
-            headerBadge.textContent = 'MODO SBU ACTIVO';
+            headerBadge.textContent = 'POSTGRESQL + SBU ACTIVO';
         }
         if (headerBtn) {
             headerBtn.className = 'px-3.5 py-2 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-500/30 transition-all';
@@ -219,7 +644,7 @@ function updateGlobalConnectionUI(isOnline) {
         }
         if (configResult) {
             configResult.className = 'text-xs font-mono text-emerald-400';
-            configResult.textContent = '● Voltronic VM II 10kW Conectado (PI30 OK)';
+            configResult.textContent = '● PostgreSQL y Voltronic VM II 10kW Conectados';
         }
 
         if (lineSolar) { lineSolar.setAttribute('stroke', '#f59e0b'); lineSolar.classList.add('flow-line'); }
@@ -301,7 +726,7 @@ function resetDashboardToOffline() {
 }
 
 // =====================================================================
-// 3. MOTOR DE TELEMETRÍA VOLTRONIC VM II 10KW
+// 6. MOTOR DE TELEMETRÍA VOLTRONIC VM II 10KW
 // =====================================================================
 function runSimulationTick() {
     if (!voltronicState.connected) return;
@@ -319,11 +744,12 @@ function runSimulationTick() {
     const totalPvKw = pv1Kw + pv2Kw;
     const availableSolarAcKw = totalPvKw * (inv.efficiency / 100);
 
-    let domoticsKw = 0;
+    let domoticsWatts = 0;
     Object.values(voltronicState.devices).forEach(dev => {
-        if (dev.active) domoticsKw += (dev.watts / 1000) * 0.28;
+        if (dev.active) domoticsWatts += Number(dev.power) || 0;
     });
-    const acLoadKw = jitter(SIM_CONFIG.baseHouseLoadKw + domoticsKw, 0.08, 0.4, 9.5);
+    const domoticsKw = domoticsWatts / 1000;
+    const acLoadKw = jitter(SIM_CONFIG.baseHouseLoadKw + domoticsKw, 0.04, 0.2, 9.8);
     const loadPct = Math.min(100, Math.round((acLoadKw / SIM_CONFIG.maxInverterKw) * 100));
 
     const surplusKw = Math.max(0, availableSolarAcKw - acLoadKw);
@@ -495,43 +921,15 @@ function appendSystemEvent(message, color = 'emerald') {
     }
 }
 
-// =====================================================================
-// 4. ACCIONES DE USUARIO
-// =====================================================================
-function toggleDevice(device, watts) {
-    const checkbox = document.getElementById('toggle-' + device);
-    const powerLabel = document.getElementById('power-' + device);
-    const isChecked = checkbox ? checkbox.checked : false;
-
-    if (voltronicState.devices[device]) {
-        voltronicState.devices[device].active = isChecked;
-        voltronicState.devices[device].watts = watts;
-    }
-
-    if (powerLabel) {
-        if (isChecked) {
-            const prefix = voltronicState.devices[device]?.activeLabel || 'Encendido';
-            powerLabel.textContent = `${prefix} @ ${(watts / 1000).toFixed(1)} kW`;
-            powerLabel.classList.remove('text-slate-400');
-            powerLabel.classList.add('text-amber-400');
-        } else {
-            powerLabel.textContent = 'Apagado (0 W)';
-            powerLabel.classList.remove('text-amber-400');
-            powerLabel.classList.add('text-slate-400');
-        }
-    }
-
-    appendSystemEvent(`Carga domótica [${device.toUpperCase()}] ${isChecked ? 'activada (' + watts + 'W)' : 'apagada'}.`, isChecked ? 'blue' : 'amber');
-    if (voltronicState.connected) runSimulationTick();
-}
-
-function refreshGeneralData() {
+async function refreshGeneralData() {
     if (!voltronicState.connected) {
         openConnectionModal();
         return;
     }
+    await loadInitialDataFromDB();
     runSimulationTick();
-    appendSystemEvent('Consulta manual QPIGS ejecutada sobre Voltronic VM II 10kW.', 'emerald');
+    appendSystemEvent('Datos sincronizados con PostgreSQL y Voltronic VM II 10kW.', 'emerald');
+    showToast('Tablero actualizado desde PostgreSQL', 'info');
 }
 
 function refreshInverters() {
@@ -543,7 +941,8 @@ function refreshInverters() {
     appendSystemEvent('Respuesta PI30 recibida desde Voltronic VM II 10kW.', 'emerald');
 }
 
-// Al cargar la página, abrir el asistente para detectar el inversor y permitir darle a "Conectar"
-document.addEventListener('DOMContentLoaded', () => {
+// Al cargar la página: leer PostgreSQL inmediatamente y abrir asistente de conexión
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadInitialDataFromDB();
     openConnectionModal();
 });

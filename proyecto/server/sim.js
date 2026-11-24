@@ -1,6 +1,6 @@
 // inverter-simulator.js
 const { EventEmitter } = require('events');
-const { buildPI30Command } = require('./inverter-protocol');
+const { buildPI30Command } = require('./protocolo');
 
 class InverterSimulator extends EventEmitter {
   constructor() {

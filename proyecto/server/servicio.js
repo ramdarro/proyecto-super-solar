@@ -1,8 +1,8 @@
 // inverter-service.js
 const { EventEmitter } = require('events');
-const { InverterSimulator } = require('./inverter-simulator');
-const { InverterSerialClient } = require('./inverter-client');
-const { buildPI30Command, parseInverterResponse } = require('./inverter-protocol');
+const { InverterSimulator } = require('./sim');
+const { InverterSerialClient } = require('./cliente');
+const { buildPI30Command, parseInverterResponse } = require('./protocolo');
 
 class InverterService extends EventEmitter {
   constructor({ mode = 'sim', path = null, baudRate = 2400 } = {}) {
