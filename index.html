@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sunlytics Pro - Voltronic VM II 10kW Dashboard</title>
+    
+    <!-- Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Icons (Phosphor Icons) -->
+    <script src="https://unpkg.com/@phosphor-icons/web@2.0.3"></script>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        solar: {
+                            amber: '#f59e0b',
+                            purple: '#7c3aed',
+                            dark: '#0d0d15',
+                            card: '#161623',
+                            border: '#2a2a3e'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Enlace al archivo CSS externo -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="h-screen flex flex-col md:flex-row overflow-hidden text-slate-100">
+
+    <!-- =================================================================== -->
+    <!-- MODAL INTERACTIVO: DETECCIÓN Y CONEXIÓN CON INVERSOR VOLTRONIC -->
+    <!-- =================================================================== -->
+    <div id="inverter-connect-modal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="glass-panel max-w-md w-full p-6 space-y-5 border border-white/15 shadow-2xl">
+            
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between border-b border-white/10 pb-3">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+                        <i class="ph-bold ph-plugs-connected text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base text-white">Conexión de Inversor</h3>
+                        <p class="text-[11px] text-slate-400">Bus Serial USB / RS232 (Protocolo PI30)</p>
+                    </div>
+                </div>
+                <button onclick="closeConnectionModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10" title="Cerrar">
+                    <i class="ph-bold ph-x text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Estado 1: Escaneando puertos -->
+            <div id="modal-scanning-state" class="py-8 flex flex-col items-center justify-center text-center space-y-3">
+                <i class="ph-bold ph-spinner-gap text-4xl text-amber-400 animate-spin"></i>
+                <div>
+                    <p class="text-sm font-semibold text-white">Buscando inversor en puertos locales...</p>
+                    <p class="text-xs text-slate-400 font-mono mt-1">Escaneando /dev/ttyUSB0 • COM3 (2400 bps)</p>
+                </div>
+            </div>
+
+            <!-- Estado 2: Dispositivo Voltronic Detectado -->
+            <div id="modal-device-found" class="hidden space-y-4">
+                <div class="flex items-center justify-between text-xs text-slate-400">
+                    <span>1 dispositivo detectado:</span>
+                    <button onclick="startDeviceDiscovery()" class="text-amber-400 hover:underline flex items-center gap-1">
+                        <i class="ph-bold ph-arrows-clockwise"></i> Re-escanear
+                    </button>
+                </div>
+
+                <!-- Tarjeta del Voltronic VM II 10kW -->
+                <div class="glass-panel-subtle p-4 border border-amber-500/30 space-y-3">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex items-center gap-3">
+                            <div class="w-11 h-11 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center justify-center shrink-0">
+                                <i class="ph-fill ph-cpu text-2xl"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-sm text-white">Voltronic Axpert VM II 10kW</h4>
+                                <p class="text-[11px] font-mono text-slate-400">Puerto: /dev/ttyUSB0 (COM3)</p>
+                                <p class="text-[11px] font-mono text-amber-400">48V DC • MPPT 450V • PI30</p>
+                            </div>
+                        </div>
+                        <span id="modal-device-badge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            DETECTADO
+                        </span>
+                    </div>
+
+                    <!-- Botón Conectar / Desconectar -->
+                    <div id="modal-action-area" class="pt-2">
+                        <button id="btn-modal-connect" onclick="connectSelectedInverter()" class="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-purple-600 hover:opacity-95 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all">
+                            <i class="ph-bold ph-plug text-base"></i>
+                            <span>Conectar Inversor</span>
+                        </button>
+                    </div>
+                </div>
+
+                <p id="modal-handshake-log" class="text-[11px] font-mono text-slate-400 text-center min-h-[16px]">
+                    Listo para iniciar lectura de telemetría QPIGS.
+                </p>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- MODAL CRUD: CREAR O EDITAR DISPOSITIVO DOMÓTICO -->
+    <!-- =================================================================== -->
+    <div id="device-form-modal" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="glass-panel max-w-md w-full p-6 space-y-4 border border-white/15 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-white/10 pb-3">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                        <i class="ph-bold ph-house-line text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 id="device-modal-title" class="font-bold text-base text-white">Nuevo Dispositivo Domótico</h3>
+                        <p class="text-[11px] text-slate-400">Persistencia directa en PostgreSQL (domotic_devices)</p>
+                    </div>
+                </div>
+                <button onclick="closeDeviceModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10" title="Cerrar">
+                    <i class="ph-bold ph-x text-lg"></i>
+                </button>
+            </div>
+
+            <form id="device-crud-form" onsubmit="submitDeviceForm(event)" class="space-y-3 text-xs">
+                <input type="hidden" id="device-form-mode" value="create">
+                <input type="hidden" id="device-form-edit-id" value="">
+
+                <div id="device-code-group">
+                    <label class="block text-slate-300 mb-1 font-medium">Código Único (sin espacios, ej: riego, horno)</label>
+                    <input type="text" id="device-form-code" required placeholder="ej: riego" class="w-full bg-slate-900/90 border border-white/15 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-amber-400">
+                </div>
+
+                <div>
+                    <label class="block text-slate-300 mb-1 font-medium">Nombre del Dispositivo</label>
+                    <input type="text" id="device-form-name" required placeholder="ej: Riego Automático Jardín" class="w-full bg-slate-900/90 border border-white/15 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-amber-400">
+                </div>
+
+                <div>
+                    <label class="block text-slate-300 mb-1 font-medium">Potencia Nominal (Watts)</label>
+                    <input type="number" id="device-form-power" required min="0" step="10" placeholder="ej: 750" class="w-full bg-slate-900/90 border border-white/15 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-amber-400">
+                </div>
+
+                <div class="pt-2 flex justify-end gap-2">
+                    <button type="button" onclick="closeDeviceModal()" class="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 font-semibold">
+                        Cancelar
+                    </button>
+                    <button type="submit" id="btn-save-device" class="px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold hover:opacity-95">
+                        Guardar en BD
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- SIDEBAR NAVIGATION -->
+    <aside class="glass-panel m-0 md:m-3 md:mr-0 w-full md:w-72 flex flex-col border-b md:border-b-0 md:border-r border-white/10 shrink-0 rounded-none md:rounded-2xl z-20">
+        
+        <!-- Header / Logo -->
+        <div class="p-4 md:p-5 flex items-center justify-between border-b border-white/10">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-purple-600 flex items-center justify-center shadow-lg shadow-amber-500/20">
+                    <i class="ph-bold ph-sun text-2xl text-white"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-amber-300 via-purple-200 to-purple-400">Sunlytics</h1>
+                    <span class="text-[10px] font-mono tracking-widest text-amber-400 uppercase font-semibold">PRO OS v2.4</span>
+                </div>
+            </div>
+            
+            <!-- Clickable Connection Status Pill -->
+            <button onclick="openConnectionModal()" id="node-status-badge" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:opacity-90 cursor-pointer" title="Clic para conectar o gestionar inversor">
+                <span class="w-2 h-2 rounded-full bg-rose-400"></span>
+                <span id="node-status-text" class="hidden xl:inline text-[11px]">OFFLINE</span>
+            </button>
+        </div>
+
+        <!-- System Quick Summary Card -->
+        <div class="hidden md:block mx-4 my-3 p-3 glass-panel-subtle text-xs space-y-2">
+            <div class="flex justify-between items-center text-slate-400">
+                <span>Planta Solar:</span>
+                <span id="sidebar-plant-name" class="text-slate-200 font-semibold">Sol de Lampa</span>
+            </div>
+            <div class="flex justify-between items-center text-slate-400">
+                <span>Inversor:</span>
+                <span class="text-amber-400 font-mono font-bold">VM II 10kW</span>
+            </div>
+            <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div id="sidebar-load-bar" class="bg-gradient-to-r from-amber-500 to-emerald-400 h-full w-[0%] transition-all duration-500"></div>
+            </div>
+        </div>
+
+        <!-- Navigation Links -->
+        <nav class="flex flex-row md:flex-col gap-1 p-2 md:p-3 overflow-x-auto md:overflow-visible flex-1">
+            <button onclick="switchTab('general')" id="btn-general" class="nav-btn active flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 w-full whitespace-nowrap text-left text-sm">
+                <i class="ph-bold ph-squares-four text-lg text-amber-400"></i>
+                <span>Vista General</span>
+            </button>
+            <button onclick="switchTab('inversores')" id="btn-inversores" class="nav-btn flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 w-full whitespace-nowrap text-left text-sm">
+                <i class="ph-bold ph-cpu text-lg text-purple-400"></i>
+                <div class="flex justify-between items-center w-full">
+                    <span>Inversor</span>
+                    <span id="sidebar-inv-count" class="bg-slate-700/60 text-slate-300 text-[10px] px-1.5 py-0.5 rounded font-mono">0 / 1</span>
+                </div>
+            </button>
+            <button onclick="switchTab('domotica')" id="btn-domotica" class="nav-btn flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 w-full whitespace-nowrap text-left text-sm">
+                <i class="ph-bold ph-house-line text-lg text-emerald-400"></i>
+                <div class="flex justify-between items-center w-full">
+                    <span>Domótica</span>
+                    <span id="sidebar-dom-count" class="bg-emerald-500/20 text-emerald-300 text-[10px] px-1.5 py-0.5 rounded font-mono">3 ACT</span>
+                </div>
+            </button>
+            <button onclick="switchTab('configuracion')" id="btn-configuracion" class="nav-btn flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 w-full whitespace-nowrap text-left text-sm">
+                <i class="ph-bold ph-gear text-lg text-blue-400"></i>
+                <span>Configuración</span>
+            </button>
+        </nav>
+
+        <!-- Weather Widget (Lampa, Chile) -->
+        <div class="hidden md:flex p-4 border-t border-white/10 items-center justify-between text-xs">
+            <div class="flex items-center gap-2.5">
+                <i class="ph-fill ph-sun-dim text-2xl text-amber-400"></i>
+                <div>
+                    <div class="font-semibold text-slate-200">Lampa, CL</div>
+                    <div class="text-slate-400">24°C • Irradiación 890 W/m²</div>
+                </div>
+            </div>
+            <span class="bg-amber-500/20 text-amber-300 px-2 py-1 rounded text-[10px] font-mono">UV 8 ALTO</span>
+        </div>
+    </aside>
+
+    <!-- MAIN VIEW AREA -->
+    <main class="flex-1 p-3 md:p-5 overflow-y-auto">
+        
+        <!-- =================================================================== -->
+        <!-- TAB 1: VISTA GENERAL (DASHBOARD) -->
+        <!-- =================================================================== -->
+        <section id="tab-general" class="tab-content active space-y-5 max-w-7xl mx-auto">
+            
+            <!-- Top Header Bar -->
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <h2 class="text-2xl font-extrabold tracking-tight text-white flex items-center gap-2">
+                        Resumen de Operación 
+                        <span id="header-mode-badge" class="text-xs font-mono font-normal bg-rose-500/20 text-rose-300 px-2 py-0.5 rounded border border-rose-500/30">SIN CONEXIÓN</span>
+                    </h2>
+                    <p class="text-xs text-slate-300">Monitoreo de generación fotovoltaica y matriz energética del hogar.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="btn-header-connect" onclick="openConnectionModal()" class="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-purple-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-amber-500/20 hover:opacity-90 transition-all">
+                        <i class="ph-bold ph-plug"></i>
+                        <span>Conectar Inversor</span>
+                    </button>
+                    <button onclick="refreshGeneralData()" class="p-2 rounded-xl bg-slate-900/60 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10" title="Actualizar Datos">
+                        <i class="ph-bold ph-arrows-clockwise text-sm"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Banner visible cuando el inversor está desconectado -->
+            <div id="disconnected-banner" class="glass-panel p-4 border border-amber-500/40 bg-amber-500/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                        <i class="ph-bold ph-warning-circle text-xl"></i>
+                    </div>
+                    <div>
+                        <h4 class="text-sm font-bold text-white">Inversor Voltronic VM II 10kW en espera de conexión</h4>
+                        <p class="text-xs text-slate-300">Detecta el puerto del inversor y presiona <strong>Conectar</strong> para iniciar la lectura de datos en tiempo real.</p>
+                    </div>
+                </div>
+                <button onclick="openConnectionModal()" class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs whitespace-nowrap transition-colors">
+                    Buscar y Conectar
+                </button>
+            </div>
+
+            <!-- Rich KPI Cards Grid -->
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div class="glass-panel p-4 flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                        <span class="text-xs text-slate-400">Generación FV</span>
+                        <i class="ph-fill ph-solar-panel text-lg text-amber-400"></i>
+                    </div>
+                    <div class="mt-2">
+                        <div class="text-2xl font-bold font-mono text-white" id="kpi-gen">-- <span class="text-xs font-normal text-slate-400">kW</span></div>
+                        <div class="text-[10px] text-slate-400 mt-1" id="kpi-gen-sub">Esperando enlace</div>
+                    </div>
+                </div>
+
+                <div class="glass-panel p-4 flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                        <span class="text-xs text-slate-400">Consumo Casa</span>
+                        <i class="ph-fill ph-house text-lg text-purple-400"></i>
+                    </div>
+                    <div class="mt-2">
+                        <div class="text-2xl font-bold font-mono text-white" id="kpi-cons">-- <span class="text-xs font-normal text-slate-400">kW</span></div>
+                        <div class="text-[10px] text-slate-400 mt-1" id="kpi-load-pct">0% carga inversor</div>
+                    </div>
+                </div>
+
+                <div class="glass-panel p-4 flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                        <span class="text-xs text-slate-400">Excedente Solar</span>
+                        <i class="ph-fill ph-arrows-out-line-horizontal text-lg text-blue-400"></i>
+                    </div>
+                    <div class="mt-2">
+                        <div class="text-2xl font-bold font-mono text-emerald-400" id="kpi-exp">-- <span class="text-xs font-normal text-slate-400">kW</span></div>
+                        <div class="text-[10px] text-slate-400 mt-1">Disponible p/ cargas</div>
+                    </div>
+                </div>
+
+                <div class="glass-panel p-4 flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                        <span class="text-xs text-slate-400">Batería 48V LiFePO4</span>
+                        <i class="ph-fill ph-battery-charging text-lg text-emerald-400"></i>
+                    </div>
+                    <div class="mt-2">
+                        <div class="text-2xl font-bold font-mono text-white" id="kpi-bat">-- <span class="text-xs font-normal text-slate-400">%</span></div>
+                        <div class="w-full bg-slate-800 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                            <div id="kpi-bat-bar" class="bg-emerald-400 h-full w-[0%] transition-all duration-500"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-panel p-4 flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                        <span class="text-xs text-slate-400">CO2 Mitigado</span>
+                        <i class="ph-fill ph-leaf text-lg text-teal-400"></i>
+                    </div>
+                    <div class="mt-2">
+                        <div class="text-2xl font-bold font-mono text-white" id="kpi-co2">-- <span class="text-xs font-normal text-slate-400">kg</span></div>
+                        <div class="text-[10px] text-teal-300 mt-1">~0.9 árboles hoy</div>
+                    </div>
+                </div>
+
+                <div class="glass-panel p-4 flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                        <span class="text-xs text-slate-400">Ahorro Est. Hoy</span>
+                        <i class="ph-fill ph-currency-dollar-simple text-lg text-amber-300"></i>
+                    </div>
+                    <div class="mt-2">
+                        <div class="text-2xl font-bold font-mono text-amber-300" id="kpi-clp">$-- <span class="text-xs font-normal text-slate-400">CLP</span></div>
+                        <div id="kpi-tariff-label" class="text-[10px] text-slate-400 mt-1">Tarifa $145/kWh</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Middle Section: Energy Flow Diagram & Generation Chart -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                
+                <!-- Interactive Animated Energy Flow Diagram -->
+                <div class="glass-panel p-5 lg:col-span-5 flex flex-col justify-between">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="font-bold text-sm text-slate-200 flex items-center gap-2">
+                            <i class="ph-bold ph-arrows-left-right text-amber-400"></i> Flujo Voltronic VM II 10kW
+                        </h3>
+                        <span class="text-[11px] font-mono text-slate-400">SBU • 48V BUS</span>
+                    </div>
+
+                    <div class="relative py-4 flex items-center justify-center">
+                        <svg class="w-full h-48 max-w-sm" viewBox="0 0 320 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <line id="svg-line-solar" x1="160" y1="35" x2="160" y2="85" stroke="#475569" stroke-width="3" />
+                            <line id="svg-line-home" x1="160" y1="115" x2="260" y2="160" stroke="#475569" stroke-width="3" />
+                            <line id="svg-line-batt" x1="160" y1="115" x2="60" y2="160" stroke="#475569" stroke-width="3" />
+                            <line x1="160" y1="115" x2="160" y2="170" stroke="#3b82f6" stroke-width="2" stroke-dasharray="4 4" />
+
+                            <g transform="translate(120, 75)">
+                                <rect width="80" height="40" rx="8" fill="#1e1b4b" stroke="#7c3aed" stroke-width="2" />
+                                <text x="40" y="19" text-anchor="middle" fill="#f1f5f9" font-size="9" font-weight="bold" font-family="sans-serif">VOLTRONIC</text>
+                                <text x="40" y="31" text-anchor="middle" fill="#c4b5fd" font-size="8" font-family="monospace">VM II 10kW</text>
+                            </g>
+
+                            <g transform="translate(130, 5)">
+                                <rect width="60" height="30" rx="6" fill="#451a03" stroke="#f59e0b" stroke-width="2" />
+                                <text x="30" y="18" text-anchor="middle" fill="#fef08a" font-size="10" font-weight="bold" font-family="sans-serif">SOLAR</text>
+                            </g>
+
+                            <g transform="translate(30, 145)">
+                                <rect width="60" height="30" rx="6" fill="#064e3b" stroke="#10b981" stroke-width="2" />
+                                <text x="30" y="18" text-anchor="middle" fill="#a7f3d0" font-size="9" font-weight="bold" font-family="sans-serif">BAT 48V</text>
+                            </g>
+
+                            <g transform="translate(130, 155)">
+                                <rect width="60" height="30" rx="6" fill="#172554" stroke="#3b82f6" stroke-width="2" />
+                                <text x="30" y="18" text-anchor="middle" fill="#bfdbfe" font-size="9" font-weight="bold" font-family="sans-serif">RED 220V</text>
+                            </g>
+
+                            <g transform="translate(230, 145)">
+                                <rect width="60" height="30" rx="6" fill="#3b0764" stroke="#a855f7" stroke-width="2" />
+                                <text x="30" y="18" text-anchor="middle" fill="#f5d0fe" font-size="9" font-weight="bold" font-family="sans-serif">HOGAR</text>
+                            </g>
+                        </svg>
+                    </div>
+
+                    <div class="grid grid-cols-3 gap-2 pt-2 border-t border-white/10 text-center text-xs">
+                        <div class="p-1.5 rounded bg-amber-500/10">
+                            <span class="block text-slate-400 text-[10px]">Generando</span>
+                            <span class="font-mono font-bold text-amber-400" id="flow-gen">0.00 kW</span>
+                        </div>
+                        <div class="p-1.5 rounded bg-purple-500/10">
+                            <span class="block text-slate-400 text-[10px]">Consumo AC</span>
+                            <span class="font-mono font-bold text-purple-300" id="flow-cons">0.00 kW</span>
+                        </div>
+                        <div class="p-1.5 rounded bg-emerald-500/10">
+                            <span class="block text-slate-400 text-[10px]">Excedente</span>
+                            <span class="font-mono font-bold text-emerald-400" id="flow-exp">0.00 kW</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Daily Generation Curve Chart -->
+                <div class="glass-panel p-5 lg:col-span-7 flex flex-col justify-between">
+                    <div class="flex justify-between items-center mb-4">
+                        <div>
+                            <h3 class="font-bold text-sm text-slate-200">Curva de Generación Solar Diaria</h3>
+                            <p class="text-[11px] text-slate-400">Potencia FV capturada por el MPPT (06:00 - 18:00 hrs)</p>
+                        </div>
+                        <div class="flex items-center gap-3 text-xs">
+                            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span> Solar FV</span>
+                            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span> Carga AC</span>
+                        </div>
+                    </div>
+
+                    <div class="h-44 flex items-end justify-between gap-1 pt-6 px-2 border-b border-white/10">
+                        <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full bg-amber-400/20 rounded-t h-2"></div><span class="text-[9px] font-mono text-slate-500">06h</span></div>
+                        <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full bg-amber-400/30 rounded-t h-8"></div><span class="text-[9px] font-mono text-slate-500">07h</span></div>
+                        <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full bg-amber-400/50 rounded-t h-16"></div><span class="text-[9px] font-mono text-slate-500">08h</span></div>
+                        <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full bg-amber-400/70 rounded-t h-24"></div><span class="text-[9px] font-mono text-slate-500">09h</span></div>
+                        <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full bg-amber-400 rounded-t h-32"></div><span class="text-[9px] font-mono text-slate-500">10h</span></div>
+                        <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full bg-amber-400 rounded-t h-38"></div><span class="text-[9px] font-mono text-slate-500">11h</span></div>
+                        <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full bg-gradient-to-t from-amber-500 to-amber-300 rounded-t h-40 shadow-lg shadow-amber-500/20"></div><span class="text-[9px] font-mono text-amber-400 font-bold">12h</span></div>
+                        <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full bg-amber-400 rounded-t h-36"></div><span class="text-[9px] font-mono text-slate-500">13h</span></div>
+                        <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full bg-amber-400/90 rounded-t h-28"></div><span class="text-[9px] font-mono text-slate-500">14h</span></div>
+                        <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full bg-amber-400/70 rounded-t h-20"></div><span class="text-[9px] font-mono text-slate-500">15h</span></div>
+                        <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full bg-amber-400/50 rounded-t h-12"></div><span class="text-[9px] font-mono text-slate-500">16h</span></div>
+                        <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full bg-amber-400/30 rounded-t h-6"></div><span class="text-[9px] font-mono text-slate-500">17h</span></div>
+                        <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full bg-amber-400/10 rounded-t h-2"></div><span class="text-[9px] font-mono text-slate-500">18h</span></div>
+                    </div>
+
+                    <div class="flex justify-between items-center text-xs text-slate-400 pt-2">
+                        <span>Pico Máximo Registrado: <strong class="text-amber-400 font-mono">6.42 kW (12:15 hrs)</strong></span>
+                        <span>Eficiencia Conversión: <strong class="text-emerald-400 font-mono">98.2%</strong></span>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Bottom Section: System Activity Logs & Alerts -->
+            <div class="glass-panel p-5">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="font-bold text-sm text-slate-200 flex items-center gap-2">
+                        <i class="ph-bold ph-list-bullets text-purple-400"></i> Eventos Recientes del Sistema
+                    </h3>
+                    <span class="text-xs text-slate-400">Registro de conexión y telemetría</span>
+                </div>
+                <div id="system-events-list" class="space-y-2 text-xs">
+                    <div class="flex items-center justify-between p-2.5 rounded-lg bg-white/5 border border-white/5">
+                        <div class="flex items-center gap-3">
+                            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                            <span class="text-slate-300">Sistema iniciado. Esperando conexión manual con el inversor Voltronic VM II 10kW.</span>
+                        </div>
+                        <span class="font-mono text-slate-500">--:--:--</span>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- TAB 2: INVERSOR VOLTRONIC VM II 10KW (HARDWARE TELEMETRY) -->
+        <!-- =================================================================== -->
+        <section id="tab-inversores" class="tab-content space-y-5 max-w-7xl mx-auto">
+            <header class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div>
+                    <h2 class="text-2xl font-extrabold tracking-tight text-white">Telemetría Voltronic VM II 10kW</h2>
+                    <p class="text-xs text-slate-300">Lectura en vivo de Bus DC 48V, entradas FV de alto voltaje (120–450V) y salida AC pura.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="openConnectionModal()" class="px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 text-xs font-semibold border border-amber-500/30 hover:bg-amber-500/30 flex items-center gap-1.5">
+                        <i class="ph-bold ph-plugs-connected"></i> Gestionar Conexión
+                    </button>
+                    <button onclick="refreshInverters()" class="px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 text-xs font-semibold border border-purple-500/30 hover:bg-purple-500/30 flex items-center gap-1.5">
+                        <i class="ph-bold ph-arrows-clockwise"></i> Consultar QPIGS
+                    </button>
+                </div>
+            </header>
+
+            <!-- Single Voltronic VM II 10kW Main Card -->
+            <div class="glass-panel p-6 space-y-5">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-white/10">
+                    <div>
+                        <div class="flex items-center gap-2.5">
+                            <h3 class="font-bold text-xl text-white">Voltronic Axpert VM II 10kW</h3>
+                            <span id="inv-card-status" class="bg-rose-500/20 text-rose-300 text-[10px] font-mono font-bold px-2 py-0.5 rounded border border-rose-500/30">DESCONECTADO</span>
+                        </div>
+                        <p class="text-xs text-slate-400 font-mono mt-1">Modelo: VMII-10000-48 • Protocolo: PI30 (2400 bps) • Firmware: U1 74.08 / U2 12.14</p>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="text-right hidden sm:block">
+                            <span class="block text-[10px] text-slate-400 font-mono">CAPACIDAD NOMINAL</span>
+                            <span class="text-sm font-bold font-mono text-amber-400">10,000 VA / 10,000 W</span>
+                        </div>
+                        <i class="ph-fill ph-cpu text-4xl text-purple-400"></i>
+                    </div>
+                </div>
+
+                <!-- Primary Stats Grid -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+                    <div class="glass-panel-subtle p-3.5">
+                        <span class="text-[11px] text-slate-400 block">Potencia Salida AC</span>
+                        <span id="inv-out-kw" class="text-xl font-bold font-mono text-emerald-400">-- kW</span>
+                        <span id="inv-load-pct" class="text-[10px] font-mono text-slate-400 block mt-0.5">Carga: 0%</span>
+                    </div>
+                    <div class="glass-panel-subtle p-3.5">
+                        <span class="text-[11px] text-slate-400 block">Bus Batería (48V)</span>
+                        <span id="inv-batt-v" class="text-xl font-bold font-mono text-blue-300">-- V</span>
+                        <span id="inv-batt-curr" class="text-[10px] font-mono text-slate-400 block mt-0.5">Sin lectura</span>
+                    </div>
+                    <div class="glass-panel-subtle p-3.5">
+                        <span class="text-[11px] text-slate-400 block">Bus DC Interno</span>
+                        <span id="inv-bus-v" class="text-xl font-bold font-mono text-white">-- V</span>
+                        <span class="text-[10px] font-mono text-slate-400 block mt-0.5">HV Bus</span>
+                    </div>
+                    <div class="glass-panel-subtle p-3.5">
+                        <span class="text-[11px] text-slate-400 block">Temp. Disipador</span>
+                        <span id="inv-temp" class="text-xl font-bold font-mono text-amber-300">-- °C</span>
+                        <span class="text-[10px] font-mono text-slate-400 block mt-0.5">Ventiladores: 0%</span>
+                    </div>
+                </div>
+
+                <!-- High Voltage MPPT Inputs -->
+                <div class="space-y-3">
+                    <div class="flex justify-between items-center">
+                        <h4 class="text-xs font-bold text-slate-300 uppercase tracking-wider">Entradas Fotovoltaicas Alto Voltaje (Rango MPPT: 120V – 450V DC)</h4>
+                        <span id="inv-pv-total" class="text-xs font-mono font-bold text-amber-400">Total FV: 0.00 kW</span>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="glass-panel-subtle p-4 space-y-2 border border-amber-500/20">
+                            <div class="flex justify-between text-xs">
+                                <span class="font-semibold text-amber-400">Entrada FV 1 (String Norte - 9 Paneles)</span>
+                                <span id="pv1-kw" class="font-mono font-bold text-white">-- kW</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-xs font-mono text-slate-400 pt-1">
+                                <div>Voltaje PV1: <span id="pv1-v" class="text-white font-semibold">-- V</span></div>
+                                <div>Corriente PV1: <span id="pv1-a" class="text-white font-semibold">-- A</span></div>
+                            </div>
+                        </div>
+
+                        <div class="glass-panel-subtle p-4 space-y-2 border border-amber-500/20">
+                            <div class="flex justify-between text-xs">
+                                <span class="font-semibold text-amber-400">Entrada FV 2 (String Poniente - 8 Paneles)</span>
+                                <span id="pv2-kw" class="font-mono font-bold text-white">-- kW</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-xs font-mono text-slate-400 pt-1">
+                                <div>Voltaje PV2: <span id="pv2-v" class="text-white font-semibold">-- V</span></div>
+                                <div>Corriente PV2: <span id="pv2-a" class="text-white font-semibold">-- A</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Grid & Output AC Specs -->
+                <div class="pt-3 border-t border-white/10 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs text-slate-400 font-mono">
+                    <div>Salida AC: <strong id="inv-ac-v" class="text-slate-200">-- V</strong></div>
+                    <div>Frecuencia: <strong id="inv-ac-hz" class="text-slate-200">-- Hz</strong></div>
+                    <div>Entrada Red: <strong id="inv-grid-v" class="text-slate-200">-- V</strong></div>
+                    <div>Factor Potencia: <strong id="inv-ac-pf" class="text-slate-200">--</strong></div>
+                </div>
+            </div>
+
+            <!-- Voltronic PI30 Serial Logs Table -->
+            <div class="glass-panel p-5">
+                <h3 class="font-bold text-sm text-slate-200 mb-3 flex items-center gap-2">
+                    <i class="ph-bold ph-terminal-window text-amber-400"></i> Registro de Comandos Seriales Voltronic (Protocolo PI30)
+                </h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs font-mono">
+                        <thead>
+                            <tr class="text-slate-400 border-b border-white/10">
+                                <th class="pb-2">TIMESTAMP</th>
+                                <th class="pb-2">COMANDO</th>
+                                <th class="pb-2">PARÁMETRO LEÍDO</th>
+                                <th class="pb-2">RESPUESTA CRUDA / VALOR</th>
+                                <th class="pb-2">CRC</th>
+                            </tr>
+                        </thead>
+                        <tbody id="voltronic-logs-body" class="divide-y divide-white/5 text-slate-300">
+                            <tr>
+                                <td class="py-2 text-slate-500">--:--:--</td>
+                                <td class="text-slate-400">IDLE</td>
+                                <td>Puerto en espera</td>
+                                <td>Presiona "Conectar Inversor" para iniciar el polling PI30</td>
+                                <td class="text-amber-400">WAIT</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- TAB 3: DOMÓTICA E INTEGRACIÓN (CRUD CON POSTGRESQL) -->
+        <!-- =================================================================== -->
+        <section id="tab-domotica" class="tab-content space-y-5 max-w-7xl mx-auto">
+            <header class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div>
+                    <h2 class="text-2xl font-extrabold tracking-tight text-white">Gestor de Domótica y Autoconsumo</h2>
+                    <p class="text-xs text-slate-300">Control inteligente de cargas pesadas acoplado a PostgreSQL.</p>
+                </div>
+                <div class="flex items-center gap-2.5">
+                    <button onclick="openCreateDeviceModal()" class="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 hover:opacity-95 transition-all">
+                        <i class="ph-bold ph-plus"></i> Agregar Dispositivo
+                    </button>
+                    <div class="bg-emerald-500/20 text-emerald-300 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold border border-emerald-500/30">
+                        EXCEDENTE SOL: <span id="dom-surplus">0.00 kW</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Grid renderizado dinámicamente desde PostgreSQL -->
+            <div id="domotica-devices-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="glass-panel p-5 text-xs text-slate-400 col-span-full text-center">
+                    Cargando dispositivos desde PostgreSQL...
+                </div>
+            </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- TAB 4: CONFIGURACIÓN & NODE.JS API (SETTINGS) -->
+        <!-- =================================================================== -->
+        <section id="tab-configuracion" class="tab-content space-y-5 max-w-7xl mx-auto">
+            <header>
+                <h2 class="text-2xl font-extrabold tracking-tight text-white">Configuración Voltronic & API Node.js</h2>
+                <p class="text-xs text-slate-300">Conexión al puente serial/USB del Voltronic VM II 10kW y tarifas eléctricas.</p>
+            </header>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <div class="glass-panel p-5 space-y-4">
+                    <h3 class="font-bold text-sm text-slate-200 flex items-center gap-2 border-b border-white/10 pb-3">
+                        <i class="ph-bold ph-tree-structure text-emerald-400"></i> Servidor Backend (Node.js + PostgreSQL)
+                    </h3>
+
+                    <div class="space-y-3 text-xs">
+                        <div>
+                            <label class="block text-slate-400 mb-1 font-medium">URL Base de la API Node.js</label>
+                            <input type="text" id="node-url" value="http://localhost:3000/api" class="w-full bg-slate-900/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-amber-400">
+                        </div>
+
+                        <div>
+                            <label class="block text-slate-400 mb-1 font-medium">Puerto Serial / USB Voltronic (2400 baud)</label>
+                            <input type="text" id="serial-port" value="/dev/ttyUSB0 (PI30 Protocol)" class="w-full bg-slate-900/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-amber-400">
+                        </div>
+
+                        <div class="pt-2 flex items-center gap-3">
+                            <button onclick="openConnectionModal()" class="px-4 py-2 bg-gradient-to-r from-amber-500 to-purple-600 rounded-lg text-white font-bold text-xs hover:opacity-90 transition-opacity">
+                                Abrir Asistente de Conexión
+                            </button>
+                            <span id="node-test-result" class="text-xs font-mono text-slate-400">● En espera de conexión manual</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-panel p-5 space-y-4">
+                    <h3 class="font-bold text-sm text-slate-200 flex items-center gap-2 border-b border-white/10 pb-3">
+                        <i class="ph-bold ph-sliders-horizontal text-purple-400"></i> Parámetros Voltronic VM II 10kW & Tarifas
+                    </h3>
+
+                    <div class="grid grid-cols-2 gap-3 text-xs">
+                        <div>
+                            <label class="block text-slate-400 mb-1 font-medium">Nombre Planta</label>
+                            <input type="text" id="config-plant-name" value="Planta Sol de Lampa" readonly class="w-full bg-slate-900/90 border border-white/10 rounded-lg px-3 py-2 text-slate-300 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 mb-1 font-medium">Potencia Nominal Inversor</label>
+                            <input type="text" id="config-plant-kwp" value="8.50 kWp" readonly class="w-full bg-slate-900/90 border border-white/10 rounded-lg px-3 py-2 text-amber-400 font-mono">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 mb-1 font-medium">Tarifa Energía ($ CLP/kWh)</label>
+                            <input type="number" id="config-energy-rate" value="145" min="1" class="w-full bg-slate-900/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-amber-400">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 mb-1 font-medium">Prioridad Salida (POP)</label>
+                            <input type="text" value="SBU (Solar-Bat-Utility)" readonly class="w-full bg-slate-900/90 border border-white/10 rounded-lg px-3 py-2 text-emerald-400 font-mono">
+                        </div>
+                    </div>
+
+                    <div class="pt-2 flex items-center gap-3">
+                        <button onclick="savePlantSettings()" id="btn-save-settings" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white font-bold text-xs transition-colors">
+                            Guardar Tarifa en BD
+                        </button>
+                        <span id="settings-save-status" class="text-xs font-mono text-slate-400"></span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Notificaciones flotantes (Toast) -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- Enlace al archivo JavaScript externo -->
+    <script src="script.js"></script>
+</body>
+</html>
